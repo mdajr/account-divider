@@ -1,0 +1,487 @@
+/* Tokens: light values defined once on :root, dark values redefined in the
+   media block. Components reference roles only, never raw hex, so adding a
+   manual theme toggle later means touching this file alone. */
+:root {
+  color-scheme: light;
+  --surface: #fcfcfb;
+  --plane: #f9f9f7;
+  --ink: #0b0b0b;
+  --ink-secondary: #52514e;
+  --ink-muted: #898781;
+  --hairline: #e1e0d9;
+  --axis: #c3c2b7;
+  --field-bg: #ffffff;
+  --unallocated: #c3c2b7;
+  --critical: #d03b3b;
+  --focus: #2a78d6;
+  --shadow: 0 1px 2px rgba(11, 11, 11, 0.06), 0 4px 12px rgba(11, 11, 11, 0.04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --surface: #1a1a19;
+    --plane: #0d0d0d;
+    --ink: #ffffff;
+    --ink-secondary: #c3c2b7;
+    --ink-muted: #898781;
+    --hairline: #2c2c2a;
+    --axis: #383835;
+    --field-bg: #242422;
+    --unallocated: #383835;
+    --critical: #e66767;
+    --focus: #3987e5;
+    --shadow: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--plane);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.page-subtitle {
+  margin: 2px 0 0;
+  color: var(--ink-secondary);
+  font-size: 14px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+
+/* ---------- forms ---------- */
+
+label,
+.field-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  margin-bottom: 6px;
+}
+
+input[type='text'] {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--ink);
+  background: var(--field-bg);
+  border: 1px solid var(--axis);
+  border-radius: 8px;
+}
+
+input[type='text']:focus-visible,
+button:focus-visible,
+input[type='color']:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+input.numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--critical);
+}
+
+.field-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--critical);
+}
+
+.balance-field {
+  max-width: 260px;
+}
+
+.balance-field input {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--field-bg);
+  border: 1px solid var(--axis);
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--ink-muted);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--focus);
+  border-color: var(--focus);
+  color: #ffffff;
+  font-weight: 500;
+}
+
+button.icon {
+  padding: 4px 8px;
+  line-height: 1.2;
+  color: var(--ink-secondary);
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: var(--critical);
+  color: var(--critical);
+}
+
+/* ---------- summary ---------- */
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 48px;
+  align-items: flex-end;
+}
+
+.hero-label,
+.stat-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  margin: 0 0 2px;
+}
+
+/* Proportional figures on purpose: tabular-nums looks loose at display size. */
+.hero-value {
+  font-size: 52px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.hero-value.over {
+  color: var(--critical);
+}
+
+.stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.stat-note {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 2px 0 0;
+}
+
+.warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--critical);
+}
+
+/* ---------- allocation bar ---------- */
+
+.bar-block {
+  display: flex;
+  flex-direction: column;
+}
+
+.marker-rail {
+  position: relative;
+  height: 38px;
+}
+
+.marker {
+  position: absolute;
+  bottom: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  pointer-events: none;
+}
+
+.marker-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-secondary);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 2px;
+}
+
+.marker-text.critical {
+  color: var(--critical);
+}
+
+.marker-stem {
+  width: 0;
+  border-left: 1px dotted var(--ink-muted);
+  height: 8px;
+}
+
+/* Stem continues down through the bar so the marker reads as one line. */
+.bar-track {
+  position: relative;
+  display: flex;
+  height: 24px;
+  border-radius: 4px;
+  overflow: visible;
+  background: transparent;
+}
+
+.bar-segment {
+  position: relative;
+  height: 100%;
+  min-width: 2px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  /* The 2px separator is a gap in the surface color, not a border. */
+  border-right: 2px solid var(--surface);
+  background-clip: padding-box;
+}
+
+.bar-segment:last-child {
+  border-right: none;
+}
+
+.bar-segment:first-child {
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.bar-segment:last-child {
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+.bar-segment-label {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.bar-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px dotted var(--ink);
+  pointer-events: none;
+}
+
+.bar-overlay.critical {
+  border-left-color: var(--critical);
+}
+
+.bar-empty {
+  height: 24px;
+  border-radius: 4px;
+  background: var(--unallocated);
+  opacity: 0.5;
+}
+
+.bar-caption {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 6px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* ---------- table ---------- */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-muted);
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+th.right,
+td.right {
+  text-align: right;
+}
+
+td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: middle;
+}
+
+td.numeric {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.swatch-cell {
+  width: 44px;
+}
+
+input[type='color'] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--axis);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.col-name {
+  min-width: 160px;
+}
+
+.col-amount {
+  width: 130px;
+}
+
+.col-note {
+  min-width: 180px;
+}
+
+.empty-row {
+  color: var(--ink-muted);
+  text-align: center;
+  padding: 24px 10px;
+}
+
+.add-row td {
+  border-bottom: none;
+  padding-top: 12px;
+}
+
+.section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.transfer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.transfer-note {
+  font-size: 13px;
+  color: var(--ink-muted);
+  margin: 0;
+  flex: 1 1 240px;
+}
+
+.transfer-status {
+  font-size: 13px;
+  margin: 8px 0 0;
+}
+
+.transfer-status.error {
+  color: var(--critical);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
