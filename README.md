@@ -37,3 +37,4 @@ Two things this depends on:
   itself; until it's set, the deploy job succeeds but nothing is published.
 - **`vite.config.ts` sets `base: '/account-divider/'`** to match the repo name. If the repo is ever
   renamed, update it or every built asset 404s in production.
+
