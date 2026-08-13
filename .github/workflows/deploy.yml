@@ -3,17 +3,17 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+  # Validate PRs (Dependabot's included) before they reach main.
+  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Let a running deploy finish rather than cancelling it mid-publish.
+# Supersede an in-flight PR run, but never cancel a deploy mid-publish.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -32,13 +32,19 @@ jobs:
 
       - run: npm run build
 
+      # Only main gets published; on a PR the job stops at a green build.
       - uses: actions/upload-pages-artifact@v5
+        if: github.event_name != 'pull_request'
         with:
           path: ./dist
 
   deploy:
     needs: build
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
