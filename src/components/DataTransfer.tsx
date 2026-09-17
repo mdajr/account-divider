@@ -42,16 +42,15 @@ export function DataTransfer({ state, onImport }: Props) {
         });
         return;
       }
-      const hasData = state.buckets.length > 0 || state.balance > 0;
-      if (hasData && !window.confirm('Replace your current balance and buckets with this file?')) {
+      const hasData = state.buckets.length > 0 || state.inflows.length > 0 || state.balance > 0;
+      if (hasData && !window.confirm('Replace your current balance, buckets and expected deposits with this file?')) {
         setStatus({ kind: 'ok', message: 'Import cancelled.' });
         return;
       }
       onImport(parsed);
-      setStatus({
-        kind: 'ok',
-        message: `Imported ${parsed.buckets.length} ${parsed.buckets.length === 1 ? 'bucket' : 'buckets'}.`,
-      });
+      const buckets = `${parsed.buckets.length} ${parsed.buckets.length === 1 ? 'bucket' : 'buckets'}`;
+      const inflows = `${parsed.inflows.length} ${parsed.inflows.length === 1 ? 'deposit' : 'deposits'}`;
+      setStatus({ kind: 'ok', message: `Imported ${buckets} and ${inflows}.` });
     } catch {
       setStatus({ kind: 'error', message: "Couldn't read that file. Nothing was changed." });
     }

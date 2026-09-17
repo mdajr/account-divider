@@ -1,22 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { createBucket, derive, moveBucket, percentOf } from './state';
 import { nextFreeSlot } from './palette';
-import type { AppState, Bucket } from './types';
+import type { Bucket } from './types';
 
 const bucket = (name: string, amount: number, colorSlot = 0): Bucket => ({
   id: name,
   name,
   amount,
   note: '',
+  date: null,
   colorSlot,
   colorOverride: null,
 });
 
-const state = (balance: number, buckets: Bucket[]): AppState => ({ version: 1, balance, buckets });
-
 describe('derive', () => {
   it('computes the remainder under-allocated', () => {
-    const result = derive(state(20000, [bucket('Kitchen', 5000), bucket('Roof', 10000)]));
+    const result = derive(20000, [bucket('Kitchen', 5000), bucket('Roof', 10000)]);
     expect(result).toEqual({
       allocated: 15000,
       unallocated: 5000,
@@ -26,7 +25,7 @@ describe('derive', () => {
   });
 
   it('goes negative and flags over-allocation, widening the bar denominator', () => {
-    const result = derive(state(10000, [bucket('Kitchen', 8000), bucket('Roof', 5000)]));
+    const result = derive(10000, [bucket('Kitchen', 8000), bucket('Roof', 5000)]);
     expect(result.allocated).toBe(13000);
     expect(result.unallocated).toBe(-3000);
     expect(result.isOverAllocated).toBe(true);
@@ -35,13 +34,13 @@ describe('derive', () => {
   });
 
   it('treats an exactly-spent balance as not over-allocated', () => {
-    const result = derive(state(15000, [bucket('Kitchen', 15000)]));
+    const result = derive(15000, [bucket('Kitchen', 15000)]);
     expect(result.unallocated).toBe(0);
     expect(result.isOverAllocated).toBe(false);
   });
 
   it('handles the empty case without dividing by zero', () => {
-    expect(derive(state(0, []))).toEqual({
+    expect(derive(0, [])).toEqual({
       allocated: 0,
       unallocated: 0,
       isOverAllocated: false,
@@ -51,7 +50,7 @@ describe('derive', () => {
 
   it('stays exact across many buckets — no float drift', () => {
     const buckets = Array.from({ length: 100 }, (_, i) => bucket(`b${i}`, 1));
-    expect(derive(state(100, buckets)).unallocated).toBe(0);
+    expect(derive(100, buckets).unallocated).toBe(0);
   });
 });
 

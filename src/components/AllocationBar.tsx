@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
-import type { AppState } from '../types';
+import type { Bucket } from '../types';
 import type { Derived } from '../state';
 import { percentOf } from '../state';
 import { formatDollars } from '../money';
@@ -38,6 +38,22 @@ function anchorFor(percent: number): CSSProperties {
   return { transform: 'translateX(-50%)' };
 }
 
+/** The pixel span a marker's label actually occupies, given how it's anchored. */
+function labelSpan(percent: number, text: string, trackWidth: number): [number, number] {
+  const x = (percent / 100) * trackWidth;
+  const width = textWidth(text);
+  if (percent <= 12) return [x, x + width];
+  if (percent >= 88) return [x - width, x];
+  return [x - width / 2, x + width / 2];
+}
+
+/** 8px of daylight between two labels before they read as one smear. */
+const LABEL_GAP = 8;
+
+function collides(a: [number, number], b: [number, number]): boolean {
+  return a[0] < b[1] + LABEL_GAP && b[0] < a[1] + LABEL_GAP;
+}
+
 type MarkerProps = {
   percent: number;
   text: string;
@@ -56,9 +72,23 @@ function Marker({ percent, text, critical = false, raised = false }: MarkerProps
   );
 }
 
-type Props = { state: AppState; derived: Derived };
+type Props = {
+  /** Cash on hand for this snapshot — today's balance, or a projected one. */
+  balance: number;
+  /** The buckets still held at this point in time. */
+  buckets: readonly Bucket[];
+  derived: Derived;
+  /**
+   * `full` carries the marker rail and caption and anchors the view; `compact`
+   * is the repeat used down the timeline, where a rail on every row would be
+   * thirty copies of the same annotation.
+   */
+  variant?: 'full' | 'compact';
+  /** Shown when there is nothing to draw. Omit to render nothing at all. */
+  emptyMessage?: string;
+};
 
-export function AllocationBar({ state, derived }: Props) {
+export function AllocationBar({ balance, buckets, derived, variant = 'full', emptyMessage }: Props) {
   const mode = useColorMode();
   const trackRef = useRef<HTMLDivElement>(null);
   const trackWidth = useElementWidth(trackRef);
@@ -70,12 +100,12 @@ export function AllocationBar({ state, derived }: Props) {
     return (
       <div className="bar-block">
         <div className="bar-empty" />
-        <p className="bar-caption">Enter a balance or add a bucket to see the split.</p>
+        {emptyMessage && <p className="bar-caption">{emptyMessage}</p>}
       </div>
     );
   }
 
-  const segments: Segment[] = state.buckets
+  const segments: Segment[] = buckets
     .filter((bucket) => bucket.amount > 0)
     .map((bucket) => ({
       key: bucket.id,
@@ -96,37 +126,40 @@ export function AllocationBar({ state, derived }: Props) {
   }
 
   const allocatedPercent = percentOf(allocated, denominator);
-  const balancePercent = percentOf(state.balance, denominator);
+  const balancePercent = percentOf(balance, denominator);
   // Exactly equal: one marker with one combined label, rather than two lines of
   // overstruck text at the same pixel.
-  const markersCoincide = allocated === state.balance;
-  // Close but not equal: stagger onto two rows so the labels don't collide.
-  const markersClose = !markersCoincide && Math.abs(allocatedPercent - balancePercent) < 22;
+  const markersCoincide = allocated === balance;
+  const allocatedLabel = `${formatDollars(allocated)} allocated`;
+  const balanceLabel = `${formatDollars(balance)} balance`;
+  // Measured in pixels, not percent: on a phone two markers 30 points apart
+  // still overstrike each other, and a percentage tells you nothing about that.
+  const markersClose =
+    !markersCoincide &&
+    trackWidth > 0 &&
+    collides(
+      labelSpan(allocatedPercent, allocatedLabel, trackWidth),
+      labelSpan(balancePercent, balanceLabel, trackWidth),
+    );
 
-  const shareBase = state.balance > 0 ? state.balance : allocated;
+  const shareBase = balance > 0 ? balance : allocated;
 
   return (
     <div className="bar-block">
-      <div className="marker-rail">
-        {markersCoincide ? (
-          <Marker percent={allocatedPercent} text={`${formatDollars(allocated)} — fully allocated`} />
-        ) : (
-          <>
-            <Marker
-              percent={allocatedPercent}
-              text={`${formatDollars(allocated)} allocated`}
-              critical={isOverAllocated}
-            />
-            {isOverAllocated && (
-              <Marker
-                percent={balancePercent}
-                text={`${formatDollars(state.balance)} balance`}
-                raised={markersClose}
-              />
-            )}
-          </>
-        )}
-      </div>
+      {variant === 'full' && (
+        <div className="marker-rail">
+          {markersCoincide ? (
+            <Marker percent={allocatedPercent} text={`${formatDollars(allocated)} — fully allocated`} />
+          ) : (
+            <>
+              <Marker percent={allocatedPercent} text={allocatedLabel} critical={isOverAllocated} />
+              {isOverAllocated && (
+                <Marker percent={balancePercent} text={balanceLabel} raised={markersClose} />
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       <div className="bar-track" ref={trackRef}>
         {segments.map((segment) => {
@@ -156,27 +189,23 @@ export function AllocationBar({ state, derived }: Props) {
           );
         })}
 
-        {/* Marker stems continue through the bar so each reads as one line. */}
+        {/* Marker stems continue through the bar so each reads as one line. The
+            over-allocation lines stay on compact rows: that's the one thing a
+            glance down the timeline has to catch. */}
         {markersCoincide ? (
-          <span className="bar-overlay" style={{ left: `${allocatedPercent}%` }} />
+          variant === 'full' && <span className="bar-overlay" style={{ left: `${allocatedPercent}%` }} />
         ) : (
           <>
-            <span
-              className={isOverAllocated ? 'bar-overlay critical' : 'bar-overlay'}
-              style={{ left: `${allocatedPercent}%` }}
-            />
+            {(variant === 'full' || isOverAllocated) && (
+              <span
+                className={isOverAllocated ? 'bar-overlay critical' : 'bar-overlay'}
+                style={{ left: `${allocatedPercent}%` }}
+              />
+            )}
             {isOverAllocated && <span className="bar-overlay" style={{ left: `${balancePercent}%` }} />}
           </>
         )}
       </div>
-
-      <p className="bar-caption">
-        {isOverAllocated
-          ? `Buckets total ${formatDollars(allocated)} against a ${formatDollars(state.balance)} balance.`
-          : `${formatDollars(allocated)} of ${formatDollars(state.balance)} allocated across ${state.buckets.length} ${
-              state.buckets.length === 1 ? 'bucket' : 'buckets'
-            }.`}
-      </p>
     </div>
   );
 }

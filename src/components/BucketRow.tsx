@@ -1,9 +1,11 @@
 import type { Bucket } from '../types';
+import type { IsoDate } from '../dates';
 import { formatDollars } from '../money';
 import { slotColor } from '../palette';
 import type { ColorMode } from '../palette';
 import { percentOf } from '../state';
 import { AmountInput } from './AmountInput';
+import { DateField } from './DateField';
 
 type Props = {
   bucket: Bucket;
@@ -56,6 +58,20 @@ export function BucketRow({ bucket, index, count, balance, mode, onChange, onMov
       </td>
 
       <td className="numeric">{balance > 0 ? `${percentOf(bucket.amount, balance).toFixed(1)}%` : '—'}</td>
+
+      <td className="col-date">
+        <DateField
+          id={`date-${bucket.id}`}
+          label={`Spend date for ${name}`}
+          value={bucket.date}
+          title={
+            bucket.date
+              ? 'Money leaves on this day'
+              : 'No date — held indefinitely. Pick a day to spend it.'
+          }
+          onChange={(date: IsoDate | null) => onChange(bucket.id, { date })}
+        />
+      </td>
 
       <td className="col-note">
         <label className="visually-hidden" htmlFor={`note-${bucket.id}`}>

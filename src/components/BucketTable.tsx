@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import type { Bucket } from '../types';
+import type { IsoDate } from '../dates';
 import { parseDollars, parseErrorMessage } from '../money';
 import { useColorMode } from '../hooks';
 import { BucketRow } from './BucketRow';
+import { DateField } from './DateField';
 
 type Props = {
   buckets: Bucket[];
@@ -11,13 +13,14 @@ type Props = {
   onChange: (id: string, patch: Partial<Bucket>) => void;
   onMove: (index: number, delta: number) => void;
   onRemove: (id: string) => void;
-  onAdd: (name: string, amount: number) => void;
+  onAdd: (name: string, amount: number, date: IsoDate | null) => void;
 };
 
 export function BucketTable({ buckets, balance, onChange, onMove, onRemove, onAdd }: Props) {
   const mode = useColorMode();
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
+  const [date, setDate] = useState<IsoDate | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const submit = () => {
@@ -32,9 +35,10 @@ export function BucketTable({ buckets, balance, onChange, onMove, onRemove, onAd
       setError(parseErrorMessage(parsed.reason));
       return;
     }
-    onAdd(trimmed, parsed.value);
+    onAdd(trimmed, parsed.value, date);
     setName('');
     setAmount('');
+    setDate(null);
     setError(null);
   };
 
@@ -56,6 +60,7 @@ export function BucketTable({ buckets, balance, onChange, onMove, onRemove, onAd
             <th>Bucket</th>
             <th className="right">Amount</th>
             <th className="right">Share</th>
+            <th>Spend on</th>
             <th>Note</th>
             <th>
               <span className="visually-hidden">Actions</span>
@@ -65,7 +70,7 @@ export function BucketTable({ buckets, balance, onChange, onMove, onRemove, onAd
         <tbody>
           {buckets.length === 0 && (
             <tr>
-              <td className="empty-row" colSpan={6}>
+              <td className="empty-row" colSpan={7}>
                 No buckets yet — add one below to start dividing the balance.
               </td>
             </tr>
@@ -123,6 +128,15 @@ export function BucketTable({ buckets, balance, onChange, onMove, onRemove, onAd
               />
             </td>
             <td />
+            <td className="col-date">
+              <DateField
+                id="new-bucket-date"
+                label="New bucket spend date"
+                value={date}
+                title="Optional — leave empty to hold this money indefinitely"
+                onChange={setDate}
+              />
+            </td>
             <td />
             <td>
               <div className="row-actions">
@@ -135,7 +149,7 @@ export function BucketTable({ buckets, balance, onChange, onMove, onRemove, onAd
 
           {error && (
             <tr>
-              <td colSpan={6}>
+              <td colSpan={7}>
                 <p className="field-error" role="alert">
                   {error}
                 </p>
