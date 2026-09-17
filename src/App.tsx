@@ -72,9 +72,16 @@ export function App() {
     quotesRef.current = state.quotes;
   }, [state.quotes]);
 
+  // Every outbound request in the app funnels through here, so the relay
+  // setting is enforced in exactly one place.
+  const relayRef = useRef(state.useRelay);
+  useEffect(() => {
+    relayRef.current = state.useRelay;
+  }, [state.useRelay]);
+
   const runRefresh = useCallback(
     async (wanted: readonly string[], force: boolean) => {
-      if (wanted.length === 0) return;
+      if (wanted.length === 0 || !relayRef.current) return;
       setRefreshing(true);
       try {
         const outcome = await refreshQuotes(wanted, quotesRef.current, today, { force });
@@ -105,6 +112,7 @@ export function App() {
   // so the page asks all of them and shows the answers.
   const runProbe = useCallback(
     async (ticker: string) => {
+      if (!relayRef.current) return;
       setProbing(true);
       setProbeResults(null);
       try {
@@ -127,6 +135,12 @@ export function App() {
     // Mount only: `state` here is deliberately the state loaded from storage.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runRefresh]);
+
+  const setUseRelay = useCallback((useRelay: boolean) => {
+    setState((current) => ({ ...current, useRelay }));
+    setPriceStatus(null);
+    setProbeResults(null);
+  }, []);
 
   const setPrice = useCallback((ticker: string, priceCents: number) => {
     setState((current) => {
@@ -239,6 +253,8 @@ export function App() {
           probing={probing}
           probeResults={probeResults}
           onProbe={runProbe}
+          useRelay={state.useRelay}
+          onSetUseRelay={setUseRelay}
           onChangeCash={updateCashInflow}
           onChangeRsu={updateRsuInflow}
           onRemove={removeInflow}

@@ -14,7 +14,7 @@ import {
 } from '../money';
 import { normalizeTicker } from '../state';
 import { valueInflow } from '../timeline';
-import { describeOutcome, type Outcome, type Provider } from '../quotes';
+import { describeOutcome, RELAY_NAMES, type Outcome, type Provider } from '../quotes';
 import { AmountInput } from './AmountInput';
 import { DateField } from './DateField';
 import { ValueField } from './ValueField';
@@ -41,6 +41,8 @@ type Props = {
   probing: boolean;
   probeResults: ProbeResults;
   onProbe: (ticker: string) => void;
+  useRelay: boolean;
+  onSetUseRelay: (value: boolean) => void;
   onChangeCash: (id: string, patch: Partial<CashInflow>) => void;
   onChangeRsu: (id: string, patch: Partial<RsuInflow>) => void;
   onRemove: (id: string) => void;
@@ -67,6 +69,8 @@ export function InflowTable({
   probing,
   probeResults,
   onProbe,
+  useRelay,
+  onSetUseRelay,
   onChangeCash,
   onChangeRsu,
   onRemove,
@@ -96,6 +100,8 @@ export function InflowTable({
         probing={probing}
         probeResults={probeResults}
         onProbe={onProbe}
+        useRelay={useRelay}
+        onSetUseRelay={onSetUseRelay}
         onSetPrice={onSetPrice}
         onRefresh={onRefreshPrices}
       />
@@ -545,6 +551,8 @@ type PriceSectionProps = {
   probing: boolean;
   probeResults: ProbeResults;
   onProbe: (ticker: string) => void;
+  useRelay: boolean;
+  onSetUseRelay: (value: boolean) => void;
   onSetPrice: (ticker: string, priceCents: number) => void;
   onRefresh: () => void;
 };
@@ -557,6 +565,8 @@ function PriceSection({
   probing,
   probeResults,
   onProbe,
+  useRelay,
+  onSetUseRelay,
   onSetPrice,
   onRefresh,
 }: PriceSectionProps) {
@@ -567,10 +577,10 @@ function PriceSection({
       <div className="section-head">
         <h3 className="subsection-title">Share prices</h3>
         <div className="row-actions">
-          <button type="button" onClick={() => onProbe(tickers[0]!)} disabled={probing}>
+          <button type="button" onClick={() => onProbe(tickers[0]!)} disabled={probing || !useRelay}>
             {probing ? 'Testing…' : 'Test sources'}
           </button>
-          <button type="button" onClick={onRefresh} disabled={refreshing}>
+          <button type="button" onClick={onRefresh} disabled={refreshing || !useRelay}>
             {refreshing ? 'Refreshing…' : 'Refresh prices'}
           </button>
         </div>
@@ -628,11 +638,25 @@ function PriceSection({
         </p>
       )}
 
+      <label className="relay-toggle">
+        <input
+          type="checkbox"
+          checked={useRelay}
+          onChange={(event) => onSetUseRelay(event.target.checked)}
+        />
+        <span>
+          <strong>Look prices up automatically.</strong> Neither price source lets a browser read its
+          reply directly, so lookups are relayed through {RELAY_NAMES.join(', ')} — free services that
+          will see which tickers you ask about. Unchecked, the app makes no outbound requests at all
+          and you enter prices yourself.
+        </span>
+      </label>
+
       {probeResults && <ProbeTable results={probeResults} />}
 
       <p className="subsection-hint">
-        Prices are delayed, and none of these sources is a supported API — they can refuse a browser
-        request at any time, which is what <strong>Test sources</strong> is for. A price you type
+        Prices are delayed, and none of these services is a supported API — any of them can start
+        refusing at any time, which is what <strong>Test sources</strong> is for. A price you type
         yourself is kept until you hit Refresh, which always re-fetches every ticker.
       </p>
     </section>

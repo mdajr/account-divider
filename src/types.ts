@@ -67,6 +67,11 @@ export type AppState = {
   inflows: Inflow[];
   /** Keyed by uppercase ticker. A cache, not user data — safe to lose. */
   quotes: Record<string, Quote>;
+  /**
+   * Whether price lookups may go through a third-party relay. Off means the app
+   * makes no outbound requests at all and prices are typed in by hand.
+   */
+  useRelay: boolean;
 };
 
 export const emptyState = (): AppState => ({
@@ -75,4 +80,5 @@ export const emptyState = (): AppState => ({
   buckets: [],
   inflows: [],
   quotes: {},
+  useRelay: true,
 });

@@ -128,7 +128,16 @@ export function parseState(raw: unknown): AppState | null {
     inflows.push(inflow);
   }
 
-  return { version: 2, balance: raw.balance, buckets, inflows, quotes: parseQuotes(raw.quotes) };
+  return {
+    version: 2,
+    balance: raw.balance,
+    buckets,
+    inflows,
+    quotes: parseQuotes(raw.quotes),
+    // Absent means an older file, which predates the setting; the relay is the
+    // default so a restored backup keeps fetching as it did.
+    useRelay: raw.useRelay !== false,
+  };
 }
 
 /** Never throws: a corrupt or absent key yields a clean empty state. */

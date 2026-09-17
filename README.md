@@ -40,40 +40,45 @@ since that money is presumably already in the balance you typed.
 
 ### Share prices
 
-There is no backend to proxy through, which rules out anything needing a secret, so prices are
-fetched straight from the browser. **None of the sources is a supported API** — they are public
-endpoints that can rate-limit, move, or refuse browser-origin requests without notice. The app is
-built around that rather than in spite of it.
+There is no backend to proxy through, so prices are fetched from the browser. The catch, established
+by testing rather than assumed: **neither price source sends `Access-Control-Allow-Origin`.** Stooq's
+`/q/l` endpoint answers 404 outright; its `/q/d/l` endpoint and Yahoo's chart API both answer
+normally, but the browser refuses to let JavaScript read a reply that carries no CORS header. No
+amount of client-side work changes that — it is the server's header, not the request.
 
-Several sources are tried in order, stopping at the first that returns a price:
+So lookups go through a **public CORS relay**: a free service that fetches the upstream server-side
+and re-serves the body with permissive headers. Three relays are crossed with two upstreams, tried in
+order until one returns a price:
 
-| Source | Endpoint |
-|---|---|
-| Stooq · quote | `stooq.com/q/l` — last quote, CSV |
-| Stooq · daily | `stooq.com/q/d/l` — daily history, CSV; the last row is the latest close |
-| Yahoo · query1 | `query1.finance.yahoo.com` — chart JSON |
-| Yahoo · query2 | `query2.finance.yahoo.com` — chart JSON |
+| | Stooq (`/q/d/l`, CSV) | Yahoo (`query1`, chart JSON) |
+|---|---|---|
+| **AllOrigins** | ✓ | ✓ |
+| **CodeTabs** | ✓ | ✓ |
+| **corsproxy.io** | ✓ | ✓ |
 
-Whichever one works is remembered for the rest of the session and tried first next time, so a dead
-source costs one wasted request per reload rather than one per fetch.
+Whichever combination works is remembered for the session and tried first next time, so a dead
+service costs one wasted request per reload rather than one per fetch.
 
-**Test sources** runs all of them against one ticker and reports what each did:
+**This means a third party sees every lookup** — which ticker, and that this browser asked. That is
+the cost of having no backend. It is stated in the UI next to the switch that turns it off, and with
+it off the app makes no outbound requests at all.
 
-- `HTTP 404` — the server answered and the browser let us read the status.
-- `answered, but …` — a 200 whose body wasn't a price (an HTML error page, an unknown ticker).
-- `blocked — CORS or network` — `fetch` threw. This is a CORS refusal *or* a transport failure *or*
-  an error response with no CORS headers; the browser deliberately hides which, so only the Network
-  tab shows the real status. The wording does not pretend to know.
+These relays are free services with no accountability: they rate-limit, break, and disappear. None of
+them is load-bearing:
 
-Every failure path falls back to typing a price in by hand:
-
-- Prices refresh when the app opens if the cached one is over 15 minutes old, and **Refresh prices**
-  re-fetches everything on demand.
+- **Test sources** runs all six combinations against one ticker and reports what each did:
+  `HTTP 503` (the server answered and the browser let us read the status), `answered, but …` (a 200
+  whose body wasn't a price — a relay error page, an unknown ticker), or `blocked — CORS or network`
+  (`fetch` threw; this is a CORS refusal *or* a transport failure *or* an error response with no CORS
+  headers, and the browser hides which, so only the Network tab shows the real status).
+- A failed fetch leaves the last known price in place rather than blanking it.
+- A vest with no price counts as $0 and is called out under the timeline, so it never quietly
+  inflates a total.
 - A price you type yourself is marked as yours and survives the automatic refresh; only the explicit
   Refresh button replaces it.
-- A failed fetch leaves the last known price in place rather than blanking it. A vest with no price
-  at all counts as $0 and is called out under the timeline, so it never quietly inflates a total.
-- Each price shows which source supplied it, and when.
+- Each price shows which relay and upstream supplied it, and when.
+
+Prices refresh when the app opens if the cached one is over 15 minutes old.
 
 ## Data
 

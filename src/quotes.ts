@@ -23,7 +23,7 @@ const TIMEOUT_MS = 10_000;
 
 export type QuoteResult = { ok: true; priceCents: number } | { ok: false; error: string };
 
-export type ProviderId = 'stooq-quote' | 'stooq-daily' | 'yahoo-1' | 'yahoo-2';
+export type ProviderId = string;
 
 export type Provider = {
   id: ProviderId;
@@ -34,7 +34,7 @@ export type Provider = {
   parse: (body: string) => QuoteResult;
 };
 
-/* ---------- symbol shapes ---------- */
+/* ---------- upstreams: where the numbers actually come from ---------- */
 
 /**
  * Stooq namespaces its symbols by exchange; bare US tickers need `.us`. A
@@ -45,8 +45,6 @@ export function stooqSymbol(ticker: string): string {
   return clean.includes('.') ? clean : `${clean}.us`;
 }
 
-/* ---------- parsers ---------- */
-
 /** Cents from a price field. External data, so rounding is right here. */
 function toCents(raw: string | number): number | null {
   const value = typeof raw === 'number' ? raw : Number(raw);
@@ -55,28 +53,10 @@ function toCents(raw: string | number): number | null {
 }
 
 /**
- * Stooq's one-line quote CSV. An unknown symbol comes back as `N/D` in every
- * column rather than as an HTTP error, so that case is checked explicitly —
- * otherwise it would read as a price of zero.
- */
-export function parseStooqCsv(csv: string): QuoteResult {
-  const rows = csv.trim().split(/\r?\n/);
-  const row = rows[1];
-  if (!row) return { ok: false, error: 'no price data returned' };
-
-  const columns = row.split(',');
-  // Symbol,Date,Time,Open,High,Low,Close,Volume
-  const close = columns[6]?.trim();
-  if (!close || close === 'N/D') return { ok: false, error: 'unknown ticker' };
-
-  const priceCents = toCents(close);
-  if (priceCents === null) return { ok: false, error: `unreadable price "${close}"` };
-  return { ok: true, priceCents };
-}
-
-/**
  * Stooq's daily history CSV, oldest first — the last row is the latest close.
  * Header: Date,Open,High,Low,Close,Volume
+ *
+ * This is the daily endpoint, not `/q/l`: that one answers 404 outright.
  */
 export function parseStooqDailyCsv(csv: string): QuoteResult {
   const rows = csv.trim().split(/\r?\n/).filter((row) => row.trim() !== '');
@@ -112,45 +92,82 @@ export function parseYahooChart(body: string): QuoteResult {
   return { ok: true, priceCents };
 }
 
-/* ---------- the candidate sources ---------- */
-
 /** Bound the daily request to a short window; the default is decades of rows. */
 const DAILY_WINDOW_DAYS = 10;
 
-export const PROVIDERS: readonly Provider[] = [
+type Upstream = {
+  id: string;
+  label: string;
+  url: (ticker: string, today: IsoDate) => string;
+  parse: (body: string) => QuoteResult;
+};
+
+const UPSTREAMS: readonly Upstream[] = [
   {
-    id: 'stooq-quote',
-    label: 'Stooq · quote',
-    note: 'stooq.com/q/l — last quote, CSV',
-    url: (ticker) => `https://stooq.com/q/l/?s=${encodeURIComponent(stooqSymbol(ticker))}&f=sd2t2ohlcv&h&e=csv`,
-    parse: parseStooqCsv,
-  },
-  {
-    id: 'stooq-daily',
-    label: 'Stooq · daily',
-    note: 'stooq.com/q/d/l — daily history, CSV',
+    id: 'stooq',
+    label: 'Stooq',
     url: (ticker, today) =>
       `https://stooq.com/q/d/l/?s=${encodeURIComponent(stooqSymbol(ticker))}` +
       `&d1=${compactDate(addDays(today, -DAILY_WINDOW_DAYS))}&d2=${compactDate(today)}&i=d`,
     parse: parseStooqDailyCsv,
   },
   {
-    id: 'yahoo-1',
-    label: 'Yahoo · query1',
-    note: 'query1.finance.yahoo.com — chart JSON',
+    id: 'yahoo',
+    label: 'Yahoo',
     url: (ticker) =>
       `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker.trim().toUpperCase())}?range=1d&interval=1d`,
     parse: parseYahooChart,
   },
+];
+
+/* ---------- relays: how the numbers get past CORS ---------- */
+
+/**
+ * Neither upstream sends `Access-Control-Allow-Origin`, so a browser can reach
+ * them but never read the reply. A relay fetches server-side and re-serves the
+ * body with permissive headers.
+ *
+ * This means a third party sees every lookup — the ticker, and the fact that
+ * this browser asked. That is the whole cost of having no backend, it is
+ * disclosed in the UI, and it can be switched off, in which case prices are
+ * typed in by hand and nothing leaves the browser.
+ *
+ * These are free services with no accountability: they rate-limit, break, and
+ * disappear. Several are listed for that reason, and none is load-bearing.
+ */
+type Relay = { id: string; label: string; wrap: (url: string) => string };
+
+const RELAYS: readonly Relay[] = [
   {
-    id: 'yahoo-2',
-    label: 'Yahoo · query2',
-    note: 'query2.finance.yahoo.com — chart JSON',
-    url: (ticker) =>
-      `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker.trim().toUpperCase())}?range=1d&interval=1d`,
-    parse: parseYahooChart,
+    id: 'allorigins',
+    label: 'AllOrigins',
+    wrap: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  },
+  {
+    id: 'codetabs',
+    label: 'CodeTabs',
+    wrap: (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+  },
+  {
+    id: 'corsproxy',
+    label: 'corsproxy.io',
+    wrap: (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   },
 ];
+
+/** Every relay crossed with every upstream, so one dead service isn't fatal. */
+export const PROVIDERS: readonly Provider[] = RELAYS.flatMap((relay) =>
+  UPSTREAMS.map((upstream) => ({
+    id: `${relay.id}+${upstream.id}`,
+    label: `${relay.label} → ${upstream.label}`,
+    note: `${relay.label} relaying ${upstream.id === 'stooq' ? 'stooq.com/q/d/l' : 'query1.finance.yahoo.com'}`,
+    url: (ticker: string, today: IsoDate) => relay.wrap(upstream.url(ticker, today)),
+    parse: upstream.parse,
+  })),
+);
+
+/** The relay services in the path, for the disclosure in the UI. */
+export const RELAY_NAMES: readonly string[] = RELAYS.map((relay) => relay.label);
 
 /* ---------- fetching ---------- */
 

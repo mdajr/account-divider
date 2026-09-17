@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   describeOutcome,
   fetchQuote,
-  parseStooqCsv,
   parseStooqDailyCsv,
   parseYahooChart,
   probe,
   PROVIDERS,
+  RELAY_NAMES,
   refreshQuotes,
   resetPreferred,
   stooqSymbol,
@@ -16,7 +16,6 @@ import type { Quote } from './types';
 import type { IsoDate } from './dates';
 
 const TODAY: IsoDate = '2026-09-17';
-const QUOTE_HEADER = 'Symbol,Date,Time,Open,High,Low,Close,Volume';
 const DAILY_HEADER = 'Date,Open,High,Low,Close,Volume';
 
 beforeEach(() => {
@@ -35,33 +34,6 @@ describe('stooqSymbol', () => {
 
   it('leaves an already-qualified symbol alone', () => {
     expect(stooqSymbol('bp.uk')).toBe('bp.uk');
-  });
-});
-
-describe('parseStooqCsv', () => {
-  it('reads the close price into cents', () => {
-    expect(parseStooqCsv(`${QUOTE_HEADER}\nAAPL.US,2026-09-16,22:00:07,245.10,246.80,244.00,245.50,50123456`)).toEqual(
-      { ok: true, priceCents: 24_550 },
-    );
-  });
-
-  it('tolerates CRLF line endings', () => {
-    expect(parseStooqCsv(`${QUOTE_HEADER}\r\nAAPL.US,2026-09-16,22:00:07,1,1,1,12.34,1\r\n`)).toEqual({
-      ok: true,
-      priceCents: 1234,
-    });
-  });
-
-  it('treats an unknown ticker as an error, not as a price of zero', () => {
-    expect(parseStooqCsv(`${QUOTE_HEADER}\nNOPE.US,N/D,N/D,N/D,N/D,N/D,N/D,N/D`)).toEqual({
-      ok: false,
-      error: 'unknown ticker',
-    });
-  });
-
-  it('refuses a body with no data row', () => {
-    expect(parseStooqCsv(QUOTE_HEADER).ok).toBe(false);
-    expect(parseStooqCsv('').ok).toBe(false);
   });
 });
 
@@ -112,35 +84,59 @@ describe('parseYahooChart', () => {
   });
 });
 
-describe('provider URLs', () => {
-  const urlFor = (id: string) => PROVIDERS.find((p) => p.id === id)!.url('AAPL', TODAY);
+describe('providers', () => {
+  it('routes every source through a relay — nothing is fetched direct', () => {
+    for (const provider of PROVIDERS) {
+      const url = provider.url('AAPL', TODAY);
+      expect(url.startsWith('https://stooq.com'), provider.id).toBe(false);
+      expect(url.startsWith('https://query1'), provider.id).toBe(false);
+      expect(RELAY_NAMES.some((name) => provider.label.startsWith(name)), provider.id).toBe(true);
+    }
+  });
+
+  it('percent-encodes the upstream URL so its query string survives the relay', () => {
+    const url = PROVIDERS.find((p) => p.id === 'allorigins+stooq')!.url('AAPL', TODAY);
+    // The upstream's own `&` and `?` must not be read as the relay's parameters.
+    expect(url).toContain('https%3A%2F%2Fstooq.com%2Fq%2Fd%2Fl%2F');
+    expect(url).toContain('%26d1%3D20260907');
+    expect(url.indexOf('&')).toBe(-1);
+  });
 
   it('qualifies the symbol for stooq and not for Yahoo', () => {
-    expect(urlFor('stooq-quote')).toContain('s=aapl.us');
-    expect(urlFor('yahoo-1')).toContain('/chart/AAPL');
+    expect(decodeURIComponent(PROVIDERS.find((p) => p.id === 'codetabs+stooq')!.url('AAPL', TODAY))).toContain(
+      's=aapl.us',
+    );
+    expect(decodeURIComponent(PROVIDERS.find((p) => p.id === 'codetabs+yahoo')!.url('AAPL', TODAY))).toContain(
+      '/chart/AAPL',
+    );
   });
 
   it('bounds the daily request to a short window instead of pulling all history', () => {
-    const url = urlFor('stooq-daily');
+    const url = decodeURIComponent(PROVIDERS.find((p) => p.id === 'allorigins+stooq')!.url('AAPL', TODAY));
     expect(url).toContain('d1=20260907');
     expect(url).toContain('d2=20260917');
   });
 
-  it('gives every source a distinct id and host', () => {
+  it('crosses every relay with every upstream, with distinct ids', () => {
     const ids = PROVIDERS.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain('allorigins+stooq');
+    expect(ids).toContain('corsproxy+yahoo');
   });
 });
 
 /**
- * A fetch stub keyed by URL substring. `null` makes the request throw, which is
- * how the browser reports a CORS refusal; a number makes it that HTTP status.
+ * A fetch stub keyed by substrings of the DECODED url, so a route can match the
+ * relay (`allorigins`) or the upstream it wraps (`s=aapl.us`) interchangeably.
+ * `status: null` makes the request throw, which is how a browser reports a CORS
+ * refusal; a number makes it that HTTP status.
  */
 const stubFetch = (routes: { match: string; body?: string; status?: number | null }[]) => {
   const calls: string[] = [];
   vi.stubGlobal('fetch', (url: string) => {
     calls.push(url);
-    const route = routes.find((r) => url.includes(r.match));
+    const decoded = decodeURIComponent(url);
+    const route = routes.find((r) => decoded.includes(r.match));
     if (!route || route.status === null) return Promise.reject(new TypeError('Failed to fetch'));
     return Promise.resolve({
       ok: (route.status ?? 200) < 400,
@@ -151,38 +147,41 @@ const stubFetch = (routes: { match: string; body?: string; status?: number | nul
   return calls;
 };
 
+const dailyBody = (price: string) => `${DAILY_HEADER}\n2026-09-16,1,1,1,${price},1`;
 const yahooBody = (price: number) => JSON.stringify({ chart: { result: [{ meta: { regularMarketPrice: price } }] } });
 
 describe('fetchQuote', () => {
-  it('falls through to the next source when one 404s', async () => {
+  it('moves to the next relay when the first one is down', async () => {
     stubFetch([
-      { match: 'stooq.com/q/l', status: 404 },
-      { match: 'stooq.com/q/d/l', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,245.50,1` },
+      { match: 'allorigins', status: 503 },
+      { match: 'codetabs', body: dailyBody('245.50') },
     ]);
     const report = await fetchQuote('AAPL', TODAY);
     expect(report.result).toEqual({ ok: true, priceCents: 24_550 });
-    expect(report.via?.id).toBe('stooq-daily');
+    expect(report.via?.id).toBe('codetabs+stooq');
     expect(report.tried.map((t) => [t.provider.id, t.outcome.kind])).toEqual([
-      ['stooq-quote', 'http'],
-      ['stooq-daily', 'ok'],
+      ['allorigins+stooq', 'http'],
+      ['allorigins+yahoo', 'http'],
+      ['codetabs+stooq', 'ok'],
     ]);
   });
 
-  it('falls through a CORS refusal too — a thrown fetch is not the end of the line', async () => {
+  it('keeps going when a relay works but the upstream it wrapped does not', async () => {
     stubFetch([
-      { match: 'stooq.com', status: null },
-      { match: 'query1.finance.yahoo.com', body: yahooBody(99) },
+      // The relay answers 200 with stooq's "unknown symbol" body.
+      { match: 's=nope.us', body: `${DAILY_HEADER}\n2026-09-16,N/D,N/D,N/D,N/D,N/D` },
+      { match: '/chart/NOPE', body: yahooBody(12.5) },
     ]);
-    const report = await fetchQuote('AAPL', TODAY);
-    expect(report.result).toEqual({ ok: true, priceCents: 9900 });
-    expect(report.via?.id).toBe('yahoo-1');
-    expect(report.tried.map((t) => t.outcome.kind)).toEqual(['blocked', 'blocked', 'ok']);
+    const report = await fetchQuote('NOPE', TODAY);
+    expect(report.tried[0]?.outcome).toMatchObject({ kind: 'parse', detail: 'unknown ticker' });
+    expect(report.result).toEqual({ ok: true, priceCents: 1250 });
+    expect(report.via?.id).toBe('allorigins+yahoo');
   });
 
-  it('keeps going when a source answers 200 with an unusable body', async () => {
+  it('survives a relay that returns its own error page with a 200', async () => {
     stubFetch([
-      { match: 'stooq.com/q/l', body: '<html>go away</html>' },
-      { match: 'stooq.com/q/d/l', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,10.00,1` },
+      { match: 'allorigins', body: '{"error":"upstream timed out"}' },
+      { match: 'codetabs', body: dailyBody('10.00') },
     ]);
     const report = await fetchQuote('AAPL', TODAY);
     expect(report.tried[0]?.outcome.kind).toBe('parse');
@@ -195,47 +194,51 @@ describe('fetchQuote', () => {
     expect(report.result).toEqual({ ok: false, error: 'no source returned a price' });
     expect(report.via).toBeNull();
     expect(report.tried).toHaveLength(PROVIDERS.length);
+    expect(report.tried.every((t) => t.outcome.kind === 'blocked')).toBe(true);
   });
 
   it('tries the source that last worked first, instead of walking the dead ones again', async () => {
     stubFetch([
-      { match: 'stooq.com', status: 404 },
-      { match: 'query1.finance.yahoo.com', body: yahooBody(50) },
+      { match: 'allorigins', status: 429 },
+      { match: 'codetabs', body: dailyBody('50.00') },
     ]);
     await fetchQuote('AAPL', TODAY);
 
-    const calls = stubFetch([{ match: 'query1.finance.yahoo.com', body: yahooBody(50) }]);
+    const calls = stubFetch([{ match: 'codetabs', body: dailyBody('50.00') }]);
     const second = await fetchQuote('AAPL', TODAY);
     expect(second.result).toEqual({ ok: true, priceCents: 5000 });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toContain('query1.finance.yahoo.com');
+    expect(calls[0]).toContain('codetabs');
   });
 });
 
 describe('probe', () => {
   it('reports one row per source, including the ones that fail', async () => {
     stubFetch([
-      { match: 'stooq.com/q/l', status: 404 },
-      { match: 'stooq.com/q/d/l', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,245.50,1` },
-      { match: 'query1', status: null },
-      { match: 'query2', body: '<html>' },
+      { match: 'allorigins', body: dailyBody('245.50') },
+      { match: 'codetabs', status: 429 },
+      { match: 'corsproxy', status: null },
     ]);
     const rows = await probe('AAPL', TODAY);
+    expect(rows).toHaveLength(PROVIDERS.length);
     expect(rows.map((r) => [r.provider.id, r.outcome.kind])).toEqual([
-      ['stooq-quote', 'http'],
-      ['stooq-daily', 'ok'],
-      ['yahoo-1', 'blocked'],
-      ['yahoo-2', 'parse'],
+      ['allorigins+stooq', 'ok'],
+      // Same relay, but Yahoo's JSON parser can't read stooq's CSV.
+      ['allorigins+yahoo', 'parse'],
+      ['codetabs+stooq', 'http'],
+      ['codetabs+yahoo', 'http'],
+      ['corsproxy+stooq', 'blocked'],
+      ['corsproxy+yahoo', 'blocked'],
     ]);
   });
 
   it('does not let a probe change which source a later fetch prefers', async () => {
-    stubFetch([{ match: 'stooq.com/q/d/l', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,1.00,1` }]);
+    stubFetch([{ match: 'codetabs', body: dailyBody('1.00') }]);
     await probe('AAPL', TODAY);
-    const calls = stubFetch([{ match: 'stooq.com/q/d/l', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,1.00,1` }]);
+    const calls = stubFetch([{ match: 'codetabs', body: dailyBody('1.00') }]);
     await fetchQuote('AAPL', TODAY);
     // Still starts at the top of the list, not at whatever the probe found.
-    expect(calls[0]).toContain('stooq.com/q/l');
+    expect(calls[0]).toContain('allorigins');
   });
 });
 
@@ -257,22 +260,22 @@ const NOW = Date.parse('2026-09-17T12:00:00.000Z');
 const quote = (priceCents: number, source: Quote['source'], ageMs = 0): Quote => ({
   priceCents,
   source,
-  via: source === 'manual' ? null : 'Stooq · daily',
+  via: source === 'manual' ? null : 'AllOrigins → Stooq',
   asOf: new Date(NOW - ageMs).toISOString(),
 });
 
-const workingDaily = [{ match: 'stooq.com/q/d/l', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,999.00,1` }];
+const workingDaily = [{ match: 'allorigins', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,999.00,1` }];
 
 describe('refreshQuotes', () => {
   it('records which source supplied the price', async () => {
-    stubFetch([{ match: 'stooq.com/q/l', status: 404 }, ...workingDaily]);
+    stubFetch(workingDaily);
     const outcome = await refreshQuotes(['AAPL'], {}, TODAY, { now: NOW });
     expect(outcome.updated).toEqual(['AAPL']);
     expect(outcome.quotes.AAPL).toEqual({
       priceCents: 99_900,
       asOf: '2026-09-17T12:00:00.000Z',
       source: 'fetched',
-      via: 'Stooq · daily',
+      via: 'AllOrigins → Stooq',
     });
   });
 
@@ -314,10 +317,7 @@ describe('refreshQuotes', () => {
   });
 
   it('reports per-ticker outcomes when some succeed and some do not', async () => {
-    stubFetch([
-      { match: 's=aapl.us&d1', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,245.50,1` },
-      { match: 's=nope.us', status: 404 },
-    ]);
+    stubFetch([{ match: 's=aapl.us', body: `${DAILY_HEADER}\n2026-09-16,1,1,1,245.50,1` }]);
     const outcome = await refreshQuotes(['AAPL', 'NOPE'], {}, TODAY, { now: NOW });
     expect(outcome.updated).toEqual(['AAPL']);
     expect(outcome.failed.map((f) => f.ticker)).toEqual(['NOPE']);

@@ -46,6 +46,7 @@ const state = (over: Partial<AppState> = {}): AppState => ({
   buckets: [],
   inflows: [],
   quotes: {},
+  useRelay: true,
   ...over,
 });
 

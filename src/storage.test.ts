@@ -33,9 +33,10 @@ const valid = {
       priceCents: 24550,
       asOf: '2026-09-17T12:00:00.000Z',
       source: 'fetched' as const,
-      via: 'Yahoo · query1',
+      via: 'AllOrigins → Stooq',
     },
   },
+  useRelay: true,
 };
 
 describe('parseState', () => {
@@ -65,7 +66,15 @@ describe('parseState', () => {
       ],
       inflows: [],
       quotes: {},
+      // Older files predate the setting; the relay stays on so a restored
+      // backup keeps fetching the way it used to.
+      useRelay: true,
     });
+  });
+
+  it('respects an explicit opt-out of the relay', () => {
+    expect(parseState({ version: 2, balance: 0, buckets: [], useRelay: false })?.useRelay).toBe(false);
+    expect(parseState({ version: 2, balance: 0, buckets: [] })?.useRelay).toBe(true);
   });
 
   it('rejects an impossible bucket date rather than rescheduling money silently', () => {
@@ -106,7 +115,7 @@ describe('parseState', () => {
       balance: 100,
       buckets: [],
       quotes: {
-        AAPL: { priceCents: 24550, asOf: '2026-09-17T12:00:00.000Z', source: 'fetched', via: 'Yahoo · query1' },
+        AAPL: { priceCents: 24550, asOf: '2026-09-17T12:00:00.000Z', source: 'fetched', via: 'AllOrigins → Stooq' },
         BAD: { priceCents: -1, asOf: '2026-09-17T12:00:00.000Z', source: 'fetched' },
         WHEN: { priceCents: 100, asOf: 'never', source: 'fetched' },
         WHO: { priceCents: 100, asOf: '2026-09-17T12:00:00.000Z', source: 'hearsay' },
