@@ -54,7 +54,9 @@ export type Quote = {
   /** ISO timestamp of when this price was captured. */
   asOf: string;
   /** `manual` prices are never overwritten by the automatic refresh. */
-  source: 'stooq' | 'manual';
+  source: 'fetched' | 'manual';
+  /** Which source supplied it; null when the user typed it in. */
+  via: string | null;
 };
 
 export type AppState = {

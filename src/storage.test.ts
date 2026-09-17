@@ -28,7 +28,14 @@ const valid = {
       taxRateBps: 2200,
     },
   ],
-  quotes: { AAPL: { priceCents: 24550, asOf: '2026-09-17T12:00:00.000Z', source: 'stooq' as const } },
+  quotes: {
+    AAPL: {
+      priceCents: 24550,
+      asOf: '2026-09-17T12:00:00.000Z',
+      source: 'fetched' as const,
+      via: 'Yahoo · query1',
+    },
+  },
 };
 
 describe('parseState', () => {
@@ -99,14 +106,29 @@ describe('parseState', () => {
       balance: 100,
       buckets: [],
       quotes: {
-        AAPL: { priceCents: 24550, asOf: '2026-09-17T12:00:00.000Z', source: 'stooq' },
-        BAD: { priceCents: -1, asOf: '2026-09-17T12:00:00.000Z', source: 'stooq' },
-        WHEN: { priceCents: 100, asOf: 'never', source: 'stooq' },
+        AAPL: { priceCents: 24550, asOf: '2026-09-17T12:00:00.000Z', source: 'fetched', via: 'Yahoo · query1' },
+        BAD: { priceCents: -1, asOf: '2026-09-17T12:00:00.000Z', source: 'fetched' },
+        WHEN: { priceCents: 100, asOf: 'never', source: 'fetched' },
         WHO: { priceCents: 100, asOf: '2026-09-17T12:00:00.000Z', source: 'hearsay' },
       },
     });
     expect(Object.keys(parsed?.quotes ?? {})).toEqual(['AAPL']);
     expect(parsed?.balance).toBe(100);
+  });
+
+  it('migrates the old single-source `stooq` tag to `fetched`', () => {
+    const parsed = parseState({
+      version: 2,
+      balance: 0,
+      buckets: [],
+      quotes: { AAPL: { priceCents: 24550, asOf: '2026-09-17T12:00:00.000Z', source: 'stooq' } },
+    });
+    expect(parsed?.quotes.AAPL).toEqual({
+      priceCents: 24550,
+      asOf: '2026-09-17T12:00:00.000Z',
+      source: 'fetched',
+      via: null,
+    });
   });
 
   it('rejects fractional amounts instead of rounding them', () => {

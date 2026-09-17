@@ -36,7 +36,8 @@ const vest = (name: string, date: IsoDate, ticker: string, units: number, taxRat
 const quote = (priceCents: number): Quote => ({
   priceCents,
   asOf: '2026-09-17T12:00:00.000Z',
-  source: 'stooq',
+  source: 'fetched',
+  via: 'Stooq · daily',
 });
 
 const state = (over: Partial<AppState> = {}): AppState => ({

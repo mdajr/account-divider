@@ -40,9 +40,30 @@ since that money is presumably already in the balance you typed.
 
 ### Share prices
 
-Prices come from [stooq.com](https://stooq.com)'s CSV endpoint — no API key, no account, and
-permissive CORS, which is what a site with no backend needs. They're delayed, which is fine for
-"roughly what will this be worth" and useless for trading.
+There is no backend to proxy through, which rules out anything needing a secret, so prices are
+fetched straight from the browser. **None of the sources is a supported API** — they are public
+endpoints that can rate-limit, move, or refuse browser-origin requests without notice. The app is
+built around that rather than in spite of it.
+
+Several sources are tried in order, stopping at the first that returns a price:
+
+| Source | Endpoint |
+|---|---|
+| Stooq · quote | `stooq.com/q/l` — last quote, CSV |
+| Stooq · daily | `stooq.com/q/d/l` — daily history, CSV; the last row is the latest close |
+| Yahoo · query1 | `query1.finance.yahoo.com` — chart JSON |
+| Yahoo · query2 | `query2.finance.yahoo.com` — chart JSON |
+
+Whichever one works is remembered for the rest of the session and tried first next time, so a dead
+source costs one wasted request per reload rather than one per fetch.
+
+**Test sources** runs all of them against one ticker and reports what each did:
+
+- `HTTP 404` — the server answered and the browser let us read the status.
+- `answered, but …` — a 200 whose body wasn't a price (an HTML error page, an unknown ticker).
+- `blocked — CORS or network` — `fetch` threw. This is a CORS refusal *or* a transport failure *or*
+  an error response with no CORS headers; the browser deliberately hides which, so only the Network
+  tab shows the real status. The wording does not pretend to know.
 
 Every failure path falls back to typing a price in by hand:
 
@@ -52,6 +73,7 @@ Every failure path falls back to typing a price in by hand:
   Refresh button replaces it.
 - A failed fetch leaves the last known price in place rather than blanking it. A vest with no price
   at all counts as $0 and is called out under the timeline, so it never quietly inflates a total.
+- Each price shows which source supplied it, and when.
 
 ## Data
 
@@ -62,6 +84,9 @@ open-ended reserve, which is what the app did before dates existed.
 Amounts are whole-dollar integers, and the two quantities that genuinely need finer precision are
 scaled integers too: share prices in cents, withholding rates in basis points. Nothing in the totals
 is a float.
+
+A cached price records `source` (`fetched` or `manual`) and `via` (which source supplied it). The
+earlier single-source spelling, `source: 'stooq'`, migrates to `fetched` on load.
 
 ## Development
 

@@ -14,6 +14,7 @@ import {
 } from '../money';
 import { normalizeTicker } from '../state';
 import { valueInflow } from '../timeline';
+import { describeOutcome, type Outcome, type Provider } from '../quotes';
 import { AmountInput } from './AmountInput';
 import { DateField } from './DateField';
 import { ValueField } from './ValueField';
@@ -25,6 +26,11 @@ const priceDisplay = (cents: number) => (cents === 0 ? '' : (cents / 100).toFixe
 
 export type PriceStatus = { kind: 'ok' | 'error'; message: string } | null;
 
+export type ProbeResults = {
+  ticker: string;
+  rows: { provider: Provider; outcome: Outcome }[];
+} | null;
+
 type Props = {
   inflows: Inflow[];
   quotes: Record<string, Quote>;
@@ -32,6 +38,9 @@ type Props = {
   today: IsoDate;
   refreshing: boolean;
   priceStatus: PriceStatus;
+  probing: boolean;
+  probeResults: ProbeResults;
+  onProbe: (ticker: string) => void;
   onChangeCash: (id: string, patch: Partial<CashInflow>) => void;
   onChangeRsu: (id: string, patch: Partial<RsuInflow>) => void;
   onRemove: (id: string) => void;
@@ -55,6 +64,9 @@ export function InflowTable({
   today,
   refreshing,
   priceStatus,
+  probing,
+  probeResults,
+  onProbe,
   onChangeCash,
   onChangeRsu,
   onRemove,
@@ -81,6 +93,9 @@ export function InflowTable({
         quotes={quotes}
         refreshing={refreshing}
         status={priceStatus}
+        probing={probing}
+        probeResults={probeResults}
+        onProbe={onProbe}
         onSetPrice={onSetPrice}
         onRefresh={onRefreshPrices}
       />
@@ -527,20 +542,38 @@ type PriceSectionProps = {
   quotes: Record<string, Quote>;
   refreshing: boolean;
   status: PriceStatus;
+  probing: boolean;
+  probeResults: ProbeResults;
+  onProbe: (ticker: string) => void;
   onSetPrice: (ticker: string, priceCents: number) => void;
   onRefresh: () => void;
 };
 
-function PriceSection({ tickers, quotes, refreshing, status, onSetPrice, onRefresh }: PriceSectionProps) {
+function PriceSection({
+  tickers,
+  quotes,
+  refreshing,
+  status,
+  probing,
+  probeResults,
+  onProbe,
+  onSetPrice,
+  onRefresh,
+}: PriceSectionProps) {
   if (tickers.length === 0) return null;
 
   return (
     <section className="subsection">
       <div className="section-head">
         <h3 className="subsection-title">Share prices</h3>
-        <button type="button" onClick={onRefresh} disabled={refreshing}>
-          {refreshing ? 'Refreshing…' : 'Refresh prices'}
-        </button>
+        <div className="row-actions">
+          <button type="button" onClick={() => onProbe(tickers[0]!)} disabled={probing}>
+            {probing ? 'Testing…' : 'Test sources'}
+          </button>
+          <button type="button" onClick={onRefresh} disabled={refreshing}>
+            {refreshing ? 'Refreshing…' : 'Refresh prices'}
+          </button>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -574,7 +607,9 @@ function PriceSection({ tickers, quotes, refreshing, status, onSetPrice, onRefre
                     {quote ? (
                       <>
                         {new Date(quote.asOf).toLocaleString()}
-                        <span className="source-tag">{quote.source === 'manual' ? 'entered by you' : 'stooq'}</span>
+                        <span className="source-tag">
+                          {quote.source === 'manual' ? 'entered by you' : (quote.via ?? 'fetched')}
+                        </span>
                       </>
                     ) : (
                       <span className="muted">not fetched yet</span>
@@ -592,10 +627,57 @@ function PriceSection({ tickers, quotes, refreshing, status, onSetPrice, onRefre
           {status.message}
         </p>
       )}
+
+      {probeResults && <ProbeTable results={probeResults} />}
+
       <p className="subsection-hint">
-        Prices come from stooq.com and are delayed. A price you type yourself is kept until you hit
-        Refresh, which always re-fetches every ticker.
+        Prices are delayed, and none of these sources is a supported API — they can refuse a browser
+        request at any time, which is what <strong>Test sources</strong> is for. A price you type
+        yourself is kept until you hit Refresh, which always re-fetches every ticker.
       </p>
     </section>
+  );
+}
+
+/**
+ * Which source works depends on the browser and the network, not on anything
+ * this code can inspect, so the results are shown rather than guessed at.
+ */
+function ProbeTable({ results }: { results: NonNullable<ProbeResults> }) {
+  const anyWorked = results.rows.some((row) => row.outcome.kind === 'ok');
+
+  return (
+    <div className="probe">
+      <p className="probe-head">Source test · {results.ticker}</p>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Endpoint</th>
+              <th>Result</th>
+              <th className="right">Time</th>
+            </tr>
+          </thead>
+          <tbody>
+            {results.rows.map(({ provider, outcome }) => (
+              <tr key={provider.id}>
+                <td className="ticker-cell">{provider.label}</td>
+                <td className="probe-note">{provider.note}</td>
+                <td className={outcome.kind === 'ok' ? 'probe-ok' : 'probe-bad'}>
+                  {describeOutcome(outcome)}
+                </td>
+                <td className="numeric">{outcome.ms} ms</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="subsection-hint">
+        {anyWorked
+          ? 'At least one source works from this browser — Refresh prices will use it.'
+          : 'No source worked from this browser. "Blocked" hides the real status by design; the Network tab shows it. Typing prices in below always works.'}
+      </p>
+    </div>
   );
 }

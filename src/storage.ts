@@ -81,11 +81,18 @@ function parseQuotes(raw: unknown): Record<string, Quote> {
   const quotes: Record<string, Quote> = {};
   for (const [ticker, value] of Object.entries(raw)) {
     if (!isRecord(value)) continue;
-    const { priceCents, asOf, source } = value;
+    const { priceCents, asOf, source, via } = value;
     if (typeof priceCents !== 'number' || !Number.isInteger(priceCents) || priceCents <= 0) continue;
     if (typeof asOf !== 'string' || Number.isNaN(Date.parse(asOf))) continue;
-    if (source !== 'stooq' && source !== 'manual') continue;
-    quotes[normalizeTicker(ticker)] = { priceCents, asOf, source };
+    // `stooq` is the pre-multi-source spelling of `fetched`.
+    const tag = source === 'stooq' ? 'fetched' : source;
+    if (tag !== 'fetched' && tag !== 'manual') continue;
+    quotes[normalizeTicker(ticker)] = {
+      priceCents,
+      asOf,
+      source: tag,
+      via: typeof via === 'string' && via !== '' ? via : null,
+    };
   }
   return quotes;
 }

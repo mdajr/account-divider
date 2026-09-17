@@ -13,6 +13,9 @@
   --field-bg: #ffffff;
   --unallocated: #c3c2b7;
   --critical: #d03b3b;
+  /* Own step per mode, picked for text contrast against that mode's surface
+     (6.59:1 here, 7.93:1 in dark) — not one hue flipped between them. */
+  --good: #006b00;
   --focus: #2a78d6;
   --shadow: 0 1px 2px rgba(11, 11, 11, 0.06), 0 4px 12px rgba(11, 11, 11, 0.04);
 }
@@ -30,6 +33,7 @@
     --field-bg: #242422;
     --unallocated: #383835;
     --critical: #e66767;
+    --good: #5cc46a;
     --focus: #3987e5;
     --shadow: none;
   }
@@ -785,4 +789,38 @@ input[type='color']::-webkit-color-swatch {
 
 .muted {
   color: var(--ink-muted);
+}
+
+/* ---------- source diagnostics ---------- */
+
+.probe {
+  margin-top: 16px;
+  padding: 14px 14px 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--plane);
+}
+
+.probe-head {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-secondary);
+}
+
+.probe-note {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+/* The wording carries the verdict; color only reinforces it. */
+.probe-ok {
+  color: var(--good);
+  font-weight: 600;
+}
+
+.probe-bad {
+  color: var(--ink-secondary);
 }

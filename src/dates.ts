@@ -54,6 +54,23 @@ export function formatMonth(iso: IsoDate): string {
   return `${monthName(iso)} ${iso.slice(0, 4)}`;
 }
 
+const utc = (iso: IsoDate) =>
+  Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
+
+/** Shift by whole days. Goes through UTC midnight, so DST can't move the day. */
+export function addDays(iso: IsoDate, days: number): IsoDate {
+  const shifted = new Date(utc(iso) + days * 86_400_000);
+  const year = String(shifted.getUTCFullYear()).padStart(4, '0');
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** `2027-01-18` → `20270118`, the compact form some feeds want. */
+export function compactDate(iso: IsoDate): string {
+  return iso.replace(/-/g, '');
+}
+
 /** Whole months from `from` to `to`, floored. Negative when `to` is earlier. */
 export function monthsBetween(from: IsoDate, to: IsoDate): number {
   const months =
@@ -68,10 +85,6 @@ export function describeDistance(from: IsoDate, to: IsoDate): string {
   const months = monthsBetween(from, to);
   if (months >= 24) return `in ${Math.floor(months / 12)} years`;
   if (months >= 1) return `in ${months} ${months === 1 ? 'month' : 'months'}`;
-  const days = Math.round((Date.UTC(
-    Number(to.slice(0, 4)), Number(to.slice(5, 7)) - 1, Number(to.slice(8, 10)),
-  ) - Date.UTC(
-    Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10)),
-  )) / 86_400_000);
+  const days = Math.round((utc(to) - utc(from)) / 86_400_000);
   return `in ${days} ${days === 1 ? 'day' : 'days'}`;
 }

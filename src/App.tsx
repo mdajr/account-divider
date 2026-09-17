@@ -5,11 +5,11 @@ import { todayIso } from './dates';
 import { load, save } from './storage';
 import { createBucket, createCashInflow, createRsuInflow, moveBucket, tickersIn } from './state';
 import { projectTimeline } from './timeline';
-import { refreshQuotes } from './quotes';
+import { probe, refreshQuotes } from './quotes';
 import { AmountInput } from './components/AmountInput';
 import { BucketTable } from './components/BucketTable';
 import { DataTransfer } from './components/DataTransfer';
-import { InflowTable, type PriceStatus } from './components/InflowTable';
+import { InflowTable, type PriceStatus, type ProbeResults } from './components/InflowTable';
 import { Summary } from './components/Summary';
 import { Timeline } from './components/Timeline';
 
@@ -17,6 +17,8 @@ export function App() {
   const [state, setState] = useState<AppState>(load);
   const [refreshing, setRefreshing] = useState(false);
   const [priceStatus, setPriceStatus] = useState<PriceStatus>(null);
+  const [probing, setProbing] = useState(false);
+  const [probeResults, setProbeResults] = useState<ProbeResults>(null);
 
   // Read once per mount. A session left open across midnight keeps yesterday's
   // baseline until reload, which is harmless — every figure is a projection.
@@ -70,31 +72,49 @@ export function App() {
     quotesRef.current = state.quotes;
   }, [state.quotes]);
 
-  const runRefresh = useCallback(async (wanted: readonly string[], force: boolean) => {
-    if (wanted.length === 0) return;
-    setRefreshing(true);
-    try {
-      const outcome = await refreshQuotes(wanted, quotesRef.current, { force });
-      if (outcome.updated.length > 0) {
-        setState((current) => ({ ...current, quotes: { ...current.quotes, ...outcome.quotes } }));
+  const runRefresh = useCallback(
+    async (wanted: readonly string[], force: boolean) => {
+      if (wanted.length === 0) return;
+      setRefreshing(true);
+      try {
+        const outcome = await refreshQuotes(wanted, quotesRef.current, today, { force });
+        if (outcome.updated.length > 0) {
+          setState((current) => ({ ...current, quotes: { ...current.quotes, ...outcome.quotes } }));
+        }
+        const parts: string[] = [];
+        if (outcome.updated.length > 0) parts.push(`Updated ${outcome.updated.join(', ')}.`);
+        if (outcome.skipped.length > 0) parts.push(`${outcome.skipped.join(', ')} already current.`);
+        if (outcome.failed.length > 0) {
+          parts.push(
+            `Couldn't update ${outcome.failed.map((f) => `${f.ticker} — ${f.error}`).join('; ')}. ` +
+              'Run "Test sources" below to see what each one did, or type a price in.',
+          );
+        }
+        setPriceStatus({
+          kind: outcome.failed.length > 0 && outcome.updated.length === 0 ? 'error' : 'ok',
+          message: parts.join(' '),
+        });
+      } finally {
+        setRefreshing(false);
       }
-      const parts: string[] = [];
-      if (outcome.updated.length > 0) parts.push(`Updated ${outcome.updated.join(', ')}.`);
-      if (outcome.skipped.length > 0) parts.push(`${outcome.skipped.join(', ')} already current.`);
-      if (outcome.failed.length > 0) {
-        parts.push(
-          `Couldn't update ${outcome.failed.map((f) => `${f.ticker} — ${f.error}`).join('; ')}. ` +
-            'Type a price in below to keep going.',
-        );
+    },
+    [today],
+  );
+
+  // Which source works from a given browser is not something this code can know,
+  // so the page asks all of them and shows the answers.
+  const runProbe = useCallback(
+    async (ticker: string) => {
+      setProbing(true);
+      setProbeResults(null);
+      try {
+        setProbeResults({ ticker, rows: await probe(ticker, today) });
+      } finally {
+        setProbing(false);
       }
-      setPriceStatus({
-        kind: outcome.failed.length > 0 && outcome.updated.length === 0 ? 'error' : 'ok',
-        message: parts.join(' '),
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
+    },
+    [today],
+  );
 
   // Refresh what's already saved, once, when the app opens — the whole point of
   // a live price is that it is different every time you look. The ref guards
@@ -114,7 +134,7 @@ export function App() {
       // Clearing the field drops the price rather than pinning it at $0, which
       // would silently value the vest at nothing.
       if (priceCents <= 0) delete quotes[ticker];
-      else quotes[ticker] = { priceCents, asOf: new Date().toISOString(), source: 'manual' };
+      else quotes[ticker] = { priceCents, asOf: new Date().toISOString(), source: 'manual', via: null };
       return { ...current, quotes };
     });
     setPriceStatus(null);
@@ -216,6 +236,9 @@ export function App() {
           today={today}
           refreshing={refreshing}
           priceStatus={priceStatus}
+          probing={probing}
+          probeResults={probeResults}
+          onProbe={runProbe}
           onChangeCash={updateCashInflow}
           onChangeRsu={updateRsuInflow}
           onRemove={removeInflow}
